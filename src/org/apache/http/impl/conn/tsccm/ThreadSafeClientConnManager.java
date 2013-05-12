@@ -30,7 +30,9 @@
 
 package org.apache.http.impl.conn.tsccm;
 
+import dalvik.system.SocketTagger;
 import java.io.IOException;
+import java.net.Socket;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.logging.Log;
@@ -83,8 +85,7 @@ public class ThreadSafeClientConnManager implements ClientConnectionManager {
      * Creates a new thread safe connection manager.
      *
      * @param params    the parameters for this manager
-     * @param schreg    the scheme registry, or
-     *                  <code>null</code> for the default registry
+     * @param schreg    the scheme registry
      */
     public ThreadSafeClientConnManager(HttpParams params,
                                        SchemeRegistry schreg) {
@@ -173,6 +174,18 @@ public class ThreadSafeClientConnManager implements ClientConnectionManager {
                 }
 
                 BasicPoolEntry entry = poolRequest.getPoolEntry(timeout, tunit);
+                // BEGIN android-changed
+                // When using a recycled Socket, we need to re-tag it with any
+                // updated statistics options.
+                try {
+                    final Socket socket = entry.getConnection().getSocket();
+                    if (socket != null) {
+                        SocketTagger.get().tag(socket);
+                    }
+                } catch (IOException iox) {
+                    log.debug("Problem tagging socket.", iox);
+                }
+                // END android-changed
                 return new BasicPooledConnAdapter(ThreadSafeClientConnManager.this, entry);
             }
             
@@ -196,6 +209,16 @@ public class ThreadSafeClientConnManager implements ClientConnectionManager {
         }
 
         try {
+            // BEGIN android-changed
+            // When recycling a Socket, we un-tag it to avoid collecting
+            // statistics from future users.
+            final BasicPoolEntry entry = (BasicPoolEntry) hca.getPoolEntry();
+            final Socket socket = entry.getConnection().getSocket();
+            if (socket != null) {
+                SocketTagger.get().untag(socket);
+            }
+            // END android-changed
+
             // make sure that the response has been read completely
             if (hca.isOpen() && !hca.isMarkedReusable()) {
                 if (log.isDebugEnabled()) {
